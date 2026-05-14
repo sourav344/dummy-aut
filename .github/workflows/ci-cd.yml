@@ -10,7 +10,7 @@ env:
   GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
   GKE_ZONE: ${{ secrets.GKE_ZONE }}
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
-  TEST_REPO: sourav344/selenium-tests   # Change if needed
+  TEST_REPO: sourav344/selenium-tests   # Change to your test repo
   TEST_BRANCH: main
 
 jobs:
@@ -74,15 +74,23 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('selenium-tests/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      - name: Install Chrome
+      - name: Install Chrome and dependencies
         run: |
           sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
           sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y xvfb libxss1 libappindicator1 libindicator7
+          google-chrome --version
 
-      - name: Run Selenium Cucumber tests (hardcoded URL)
+      - name: Run Selenium Cucumber tests
         run: |
           cd selenium-tests
-          mvn clean test
+          xvfb-run mvn clean test
+        env:
+          CHROME_OPTIONS: "--headless --no-sandbox --disable-dev-shm-usage --disable-gpu --window-size=1920,1080"
 
   promote-to-prod:
     runs-on: ubuntu-latest
