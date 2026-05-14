@@ -1,4 +1,4 @@
-name: CI/CD to GKE with Selenium Tests
+name: CI/CD to GKE (Hardcoded Test URL)
 
 on:
   push:
@@ -9,9 +9,8 @@ env:
   PROJECT_ID: ${{ secrets.GKE_PROJECT }}
   GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
   GKE_ZONE: ${{ secrets.GKE_ZONE }}
-  # Full image tag: us-docker.pkg.dev/PROJECT_ID/dummy-aut-repo/dummy-aut:sha
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
-  TEST_REPO: sourav344/selenium-tests   # Change to your test repo (public)
+  TEST_REPO: sourav344/selenium-tests   # Change if needed
   TEST_BRANCH: main
 
 jobs:
@@ -35,7 +34,7 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE_NAME }} .
 
-      - name: Push Docker image to Artifact Registry
+      - name: Push Docker image
         run: docker push ${{ env.IMAGE_NAME }}
 
       - name: Get GKE credentials
@@ -50,16 +49,6 @@ jobs:
           sed -i "s|IMAGE_NAME_PLACEHOLDER|${{ env.IMAGE_NAME }}|g" k8s/qa/deployment.yaml
           kubectl apply -f k8s/qa/
           kubectl rollout status deployment/dummy-aut -n qa --timeout=300s
-
-      - name: Get QA service external IP
-        id: get-qa-ip
-        run: |
-          IP=""
-          while [ -z "$IP" ]; do
-            IP=$(kubectl get svc dummy-aut-svc -n qa -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-            [ -z "$IP" ] && sleep 10
-          done
-          echo "qa_ip=$IP" >> $GITHUB_OUTPUT
 
   run-tests:
     runs-on: ubuntu-latest
@@ -85,40 +74,22 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('selenium-tests/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      - name: Install Chrome (headless)
+      - name: Install Chrome
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
-      - name: Wait for QA service to be ready
-        run: |
-          IP="${{ needs.build-and-deploy-qa.outputs.qa_ip }}"
-          echo "Waiting for QA at http://$IP"
-          until curl -s "http://$IP" > /dev/null; do sleep 5; done
-          echo "QA_URL=http://$IP" >> $GITHUB_ENV
-
-      - name: Run Selenium Cucumber tests
+      - name: Run Selenium Cucumber tests (hardcoded URL)
         run: |
           cd selenium-tests
-          mvn clean test -Dtest.base.url="http://${{ needs.build-and-deploy-qa.outputs.qa_ip }}"
-        env:
-          CHROME_OPTIONS: "--headless --no-sandbox --disable-dev-shm-usage"
-
-      - name: Store test result
-        id: test-result
-        run: |
-          if [ $? -eq 0 ]; then
-            echo "status=passed" >> $GITHUB_OUTPUT
-          else
-            echo "status=failed" >> $GITHUB_OUTPUT
-          fi
+          mvn clean test
 
   promote-to-prod:
     runs-on: ubuntu-latest
     needs: run-tests
     if: success()
     steps:
-      - name: Checkout AUT repo (for manifests)
+      - name: Checkout AUT repo
         uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
@@ -140,4 +111,4 @@ jobs:
           kubectl rollout status deployment/dummy-aut -n prod --timeout=300s
 
       - name: Notify success
-        run: echo "✅ Promotion to PROD completed successfully!"
+        run: echo "✅ Promotion to PROD completed (tests passed against hardcoded URL)"
