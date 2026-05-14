@@ -9,40 +9,50 @@ env:
   PROJECT_ID: ${{ secrets.GKE_PROJECT }}
   GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
   GKE_ZONE: ${{ secrets.GKE_ZONE }}
+  # Full image tag: us-docker.pkg.dev/PROJECT_ID/dummy-aut-repo/dummy-aut:sha
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
-  TEST_REPO: sourav344/selenium-tests   # change to your username
+  TEST_REPO: sourav344/selenium-tests   # Change to your test repo (public)
   TEST_BRANCH: main
 
 jobs:
   build-and-deploy-qa:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Build & push Docker image
+      - name: Checkout AUT code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GKE_SA_KEY }}
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
-      - name: Configure Docker
-        run: gcloud auth configure-docker ${{ secrets.ARTIFACT_REGISTRY }}
-      - name: Build & push
-        run: |
-          docker build -t ${{ env.IMAGE_NAME }} .
-          docker push ${{ env.IMAGE_NAME }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-docker.pkg.dev
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE_NAME }} .
+
+      - name: Push Docker image to Artifact Registry
+        run: docker push ${{ env.IMAGE_NAME }}
+
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
           credentials: ${{ secrets.GKE_SA_KEY }}
-      - name: Deploy to QA
+
+      - name: Deploy to QA namespace
         run: |
           sed -i "s|IMAGE_NAME_PLACEHOLDER|${{ env.IMAGE_NAME }}|g" k8s/qa/deployment.yaml
           kubectl apply -f k8s/qa/
           kubectl rollout status deployment/dummy-aut -n qa --timeout=300s
-      - name: Get QA service IP
-        id: qa-ip
+
+      - name: Get QA service external IP
+        id: get-qa-ip
         run: |
           IP=""
           while [ -z "$IP" ]; do
@@ -55,57 +65,79 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-deploy-qa
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout test framework repo
+        uses: actions/checkout@v4
         with:
           repository: ${{ env.TEST_REPO }}
           ref: ${{ env.TEST_BRANCH }}
           path: selenium-tests
+
       - name: Set up JDK 11
         uses: actions/setup-java@v3
         with:
           java-version: '11'
           distribution: 'temurin'
-      - name: Cache Maven
+
+      - name: Cache Maven dependencies
         uses: actions/cache@v3
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('selenium-tests/pom.xml') }}
-      - name: Install Chrome
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Install Chrome (headless)
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
-      - name: Wait for QA
+
+      - name: Wait for QA service to be ready
         run: |
           IP="${{ needs.build-and-deploy-qa.outputs.qa_ip }}"
+          echo "Waiting for QA at http://$IP"
           until curl -s "http://$IP" > /dev/null; do sleep 5; done
           echo "QA_URL=http://$IP" >> $GITHUB_ENV
-      - name: Run tests
+
+      - name: Run Selenium Cucumber tests
         run: |
           cd selenium-tests
-          mvn clean test -Dtest.base.url="${{ needs.build-and-deploy-qa.outputs.qa_ip }}"
+          mvn clean test -Dtest.base.url="http://${{ needs.build-and-deploy-qa.outputs.qa_ip }}"
         env:
           CHROME_OPTIONS: "--headless --no-sandbox --disable-dev-shm-usage"
+
       - name: Store test result
-        id: test
-        run: echo "status=passed" >> $GITHUB_OUTPUT
+        id: test-result
+        run: |
+          if [ $? -eq 0 ]; then
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
 
   promote-to-prod:
     runs-on: ubuntu-latest
     needs: run-tests
     if: success()
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v1
+      - name: Checkout AUT repo (for manifests)
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GKE_SA_KEY }}
+
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
           credentials: ${{ secrets.GKE_SA_KEY }}
-      - name: Deploy to PROD
+
+      - name: Deploy to PROD namespace
         run: |
           sed -i "s|IMAGE_NAME_PLACEHOLDER|${{ env.IMAGE_NAME }}|g" k8s/prod/deployment.yaml
           kubectl apply -f k8s/prod/
           kubectl rollout status deployment/dummy-aut -n prod --timeout=300s
+
+      - name: Notify success
+        run: echo "✅ Promotion to PROD completed successfully!"
