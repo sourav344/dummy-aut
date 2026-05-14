@@ -1,4 +1,4 @@
-name: CI/CD to GKE (Hardcoded Test URL)
+name: CI/CD to GKE
 
 on:
   push:
