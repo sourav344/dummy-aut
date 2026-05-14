@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy-aut
+  namespace: qa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dummy-aut
+  template:
+    metadata:
+      labels:
+        app: dummy-aut
+    spec:
+      containers:
+      - name: app
+        image: IMAGE_NAME_PLACEHOLDER
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dummy-aut-svc
+  namespace: qa
+spec:
+  selector:
+    app: dummy-aut
+  ports:
+    - port: 80
+      targetPort: 80
+  type: LoadBalancer
