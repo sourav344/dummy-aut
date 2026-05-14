@@ -10,7 +10,7 @@ env:
   GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
   GKE_ZONE: ${{ secrets.GKE_ZONE }}
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
-  TEST_REPO: sourav344/selenium-tests   # Change to your test repo
+  TEST_REPO: sourav344/selenium-tests
   TEST_BRANCH: main
 
 jobs:
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-deploy-qa
     steps:
-      - name: Checkout test framework repo
+      - name: Checkout test framework
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TEST_REPO }}
@@ -72,19 +72,17 @@ jobs:
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('selenium-tests/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
 
-      - name: Install Chrome and dependencies
+      - name: Install Chrome and xvfb (guaranteed method)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget gnupf xvfb
-          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y wget xvfb
+          # Download and install Google Chrome .deb with dependencies
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
           google-chrome --version
 
-      - name: Run Selenium Cucumber tests
+      - name: Run tests with xvfb
         run: |
           cd selenium-tests
           xvfb-run mvn clean test
@@ -96,7 +94,7 @@ jobs:
     needs: run-tests
     if: success()
     steps:
-      - name: Checkout AUT repo
+      - name: Checkout AUT code
         uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
@@ -111,11 +109,11 @@ jobs:
           location: ${{ env.GKE_ZONE }}
           credentials: ${{ secrets.GKE_SA_KEY }}
 
-      - name: Deploy to PROD namespace
+      - name: Deploy to PROD
         run: |
           sed -i "s|IMAGE_NAME_PLACEHOLDER|${{ env.IMAGE_NAME }}|g" k8s/prod/deployment.yaml
           kubectl apply -f k8s/prod/
           kubectl rollout status deployment/dummy-aut -n prod --timeout=300s
 
       - name: Notify success
-        run: echo "✅ Promotion to PROD completed (tests passed against hardcoded URL)"
+        run: echo "✅ Promotion to PROD completed"
