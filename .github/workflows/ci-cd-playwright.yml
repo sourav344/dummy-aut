@@ -1,4 +1,4 @@
-name: CI/CD to GKE with Playwright Java Tests
+name: CI/CD to GKE with Playwright-Java Tests
 
 on:
   push:
