@@ -12,7 +12,7 @@ env:
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
   TEST_REPO: sourav344/playwright-tests
   TEST_BRANCH: main
-  GKE_SA_KEY_SECRET_NAME: github-actions-sa-key   # Change if needed
+  GKE_SA_KEY_SECRET_NAME: github-actions-sa-key
 
 jobs:
   build-and-deploy-qa:
