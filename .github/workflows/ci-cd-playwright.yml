@@ -10,8 +10,10 @@ env:
   GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
   GKE_ZONE: ${{ secrets.GKE_ZONE }}
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
-  TEST_REPO: sourav344/playwright-tests   # Change to your test repo name
+  TEST_REPO: sourav344/playwright-tests
   TEST_BRANCH: main
+  # Secret Manager secret name where the service account JSON is stored
+  GKE_SA_KEY_SECRET_NAME: github-actions-sa-key   # Change if needed
 
 jobs:
   build-and-deploy-qa:
@@ -23,10 +25,25 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          credentials_json: ${{ secrets.GKE_SA_KEY }}   # Temporarily still needed for initial auth
+          # We will replace this after fetching from Secret Manager
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
+
+      # --- NEW: Fetch SA key from GCP Secret Manager ---
+      - name: Fetch GKE SA key from Secret Manager
+        id: fetch-sa-key
+        run: |
+          # The previous auth (using GKE_SA_KEY secret) gives us access to Secret Manager
+          gcloud secrets versions access latest --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" > /tmp/gke-sa-key.json
+          echo "SA_KEY_PATH=/tmp/gke-sa-key.json" >> $GITHUB_OUTPUT
+
+      # Re‑authenticate using the key from Secret Manager (so we don't rely on GitHub secret)
+      - name: Authenticate again with SA key from Secret Manager
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-docker.pkg.dev
@@ -42,7 +59,7 @@ jobs:
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ secrets.GKE_SA_KEY }}
+          credentials: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Deploy to QA namespace
         run: |
@@ -76,19 +93,35 @@ jobs:
       - name: Install Playwright dependencies (system libraries)
         run: |
           sudo apt-get update
-          # Playwright provides a script to install required system packages
-          npx playwright install-deps || true  # npx might not be installed; alternative below
-          # Fallback: manually install common dependencies
+          # Install Playwright's required system dependencies (without npx)
           sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev \
             libgbm-dev libasound-dev libatspi2.0-0 libxshmfence-dev
           # Install Playwright browsers
           cd playwright-tests
           mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: playwright-tests
+          args: >
+            -Dsonar.organization=sourav344
+            -Dsonar.projectKey=sourav344_playwright-tests
+
       - name: Run Playwright Java tests (headless)
         run: |
           cd playwright-tests
           mvn clean test -Dheadless=true
-        # No need for xvfb – Playwright handles headless natively
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-reports
+          path: playwright-tests/target/cucumber-reports/
 
   promote-to-prod:
     runs-on: ubuntu-latest
@@ -101,7 +134,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          credentials_json: ${{ secrets.GKE_SA_KEY }}   # Still need initial auth; ideally also fetch from SM
+          # For consistency, you could also fetch the SA key again, but we keep as is for simplicity
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
