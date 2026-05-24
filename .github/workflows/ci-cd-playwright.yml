@@ -3,8 +3,7 @@ name: CI/CD to GKE with Playwright-Java Tests
 permissions:
   contents: 'read'
   id-token: 'write'
-  
-  
+
 on:
   push:
     branches: [ main ]
@@ -87,6 +86,12 @@ jobs:
           cd playwright-tests
           mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
 
+      # Compile test classes before SonarCloud (required for Java analysis)
+      - name: Compile test classes for SonarCloud
+        run: |
+          cd playwright-tests
+          mvn test-compile
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -97,6 +102,10 @@ jobs:
           args: >
             -Dsonar.organization=sourav344
             -Dsonar.projectKey=sourav344_playwright-tests
+            -Dsonar.sources=src/test/java
+            -Dsonar.tests=src/test/java
+            -Dsonar.java.binaries=target/test-classes
+            -Dsonar.java.test.binaries=target/test-classes
 
       - name: Run Playwright Java tests (headless)
         run: |
