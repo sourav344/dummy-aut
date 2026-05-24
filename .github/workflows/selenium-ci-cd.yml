@@ -1,4 +1,8 @@
-name: CI/CD to GKE
+name: CI/CD to GKE (Selenium)
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
 
 on:
   push:
@@ -17,13 +21,15 @@ jobs:
   build-and-deploy-qa:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout AUT code 
+      - name: Checkout AUT code
         uses: actions/checkout@v4
 
+      # Workload Identity Federation (keyless authentication)
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          workload_identity_provider: "projects/508543343270/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-actions-gke@innovationforu-1743180791033.iam.gserviceaccount.com"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
@@ -42,7 +48,6 @@ jobs:
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ secrets.GKE_SA_KEY }}
 
       - name: Deploy to QA namespace
         run: |
@@ -73,21 +78,27 @@ jobs:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('selenium-tests/pom.xml') }}
 
-      - name: Install Chrome and xvfb (guaranteed method)
+      - name: Install Chrome and xvfb
         run: |
           sudo apt-get update
           sudo apt-get install -y wget xvfb
-          # Download and install Google Chrome .deb with dependencies
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
           google-chrome --version
 
-      - name: Run tests with xvfb
+      - name: Run Selenium tests with xvfb
         run: |
           cd selenium-tests
           xvfb-run mvn clean test
         env:
           CHROME_OPTIONS: "--headless --no-sandbox --disable-dev-shm-usage --disable-gpu --window-size=1920,1080"
+
+      - name: Upload test reports (optional)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selenium-reports
+          path: selenium-tests/target/cucumber-reports/
 
   promote-to-prod:
     runs-on: ubuntu-latest
@@ -100,14 +111,14 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          workload_identity_provider: "projects/508543343270/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-actions-gke@innovationforu-1743180791033.iam.gserviceaccount.com"
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ secrets.GKE_SA_KEY }}
 
       - name: Deploy to PROD
         run: |
@@ -116,4 +127,4 @@ jobs:
           kubectl rollout status deployment/dummy-aut -n prod --timeout=300s
 
       - name: Notify success
-        run: echo "✅ Promotion to PROD completed"
+        run: echo "✅ Promotion to PROD completed (Selenium tests passed)"
