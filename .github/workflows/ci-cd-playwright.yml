@@ -12,7 +12,6 @@ env:
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
   TEST_REPO: sourav344/playwright-tests
   TEST_BRANCH: main
-  GKE_SA_KEY_SECRET_NAME: github-actions-sa-key
 
 jobs:
   build-and-deploy-qa:
@@ -21,27 +20,15 @@ jobs:
       - name: Checkout AUT code
         uses: actions/checkout@v4
 
-      # Initial authentication using GitHub secret (temporary, to fetch the real key)
-      - name: Authenticate to Google Cloud (initial)
+      # Workload Identity Federation (keyless authentication)
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
+          workload_identity_provider: "projects/508543270/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-actions-gke@innovationforu-1743180791033.iam.gserviceaccount.com"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
-
-      - name: Fetch GKE SA key from Secret Manager
-        id: fetch-sa-key
-        run: |
-          gcloud secrets versions access latest \
-            --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" \
-            --project="${{ env.PROJECT_ID }}" > /tmp/gke-sa-key.json
-          echo "SA_KEY_PATH=/tmp/gke-sa-key.json" >> $GITHUB_OUTPUT
-
-      - name: Authenticate again with SA key from Secret Manager
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-docker.pkg.dev
@@ -57,7 +44,6 @@ jobs:
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Deploy to QA namespace
         run: |
@@ -127,33 +113,17 @@ jobs:
       - name: Checkout AUT code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud (initial)
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-
-      - name: Fetch GKE SA key from Secret Manager
-        id: fetch-sa-key
-        run: |
-          gcloud secrets versions access latest \
-            --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" \
-            --project="${{ env.PROJECT_ID }}" > /tmp/gke-sa-key.json
-          echo "SA_KEY_PATH=/tmp/gke-sa-key.json" >> $GITHUB_OUTPUT
-
-      - name: Authenticate again with SA key from Secret Manager
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
+          workload_identity_provider: "projects/508543343270/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "github-actions-gke@innovationforu-1743180791033.iam.gserviceaccount.com"
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Deploy to PROD
         run: |
