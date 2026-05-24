@@ -1,4 +1,4 @@
-name: CI/CD to GKE with Playwright JavaScript Tests
+name: CI/CD to GKE with Playwright JS Tests
 
 permissions:
   contents: 'read'
