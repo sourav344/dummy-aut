@@ -69,10 +69,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: playwright-js-tests/package-lock.json
 
-      - name: Install npm dependencies
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: playwright-js-tests/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('playwright-js-tests/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        if: steps.npm-cache.outputs.cache-hit != 'true'
         run: |
           cd playwright-js-tests
           npm ci
