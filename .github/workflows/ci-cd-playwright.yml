@@ -21,24 +21,23 @@ jobs:
       - name: Checkout AUT code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      # Initial authentication using GitHub secret (temporary, to fetch the real key)
+      - name: Authenticate to Google Cloud (initial)
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}   # Temporarily still needed for initial auth
-          # We will replace this after fetching from Secret Manager
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
 
-      # --- NEW: Fetch SA key from GCP Secret Manager ---
       - name: Fetch GKE SA key from Secret Manager
         id: fetch-sa-key
         run: |
-          # The previous auth (using GKE_SA_KEY secret) gives us access to Secret Manager
-          gcloud secrets versions access latest --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" > /tmp/gke-sa-key.json
+          gcloud secrets versions access latest \
+            --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" > /tmp/gke-sa-key.json
           echo "SA_KEY_PATH=/tmp/gke-sa-key.json" >> $GITHUB_OUTPUT
 
-      # Re‑authenticate using the key from Secret Manager (so we don't rely on GitHub secret)
       - name: Authenticate again with SA key from Secret Manager
         uses: google-github-actions/auth@v1
         with:
@@ -89,13 +88,11 @@ jobs:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('playwright-tests/pom.xml') }}
 
-      - name: Install Playwright dependencies (system libraries)
+      - name: Install Playwright dependencies
         run: |
           sudo apt-get update
-          # Install Playwright's required system dependencies (without npx)
           sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm-dev libxkbcommon-dev \
             libgbm-dev libasound-dev libatspi2.0-0 libxshmfence-dev
-          # Install Playwright browsers
           cd playwright-tests
           mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install"
 
@@ -130,18 +127,33 @@ jobs:
       - name: Checkout AUT code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud (initial)
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}   # Still need initial auth; ideally also fetch from SM
-          # For consistency, you could also fetch the SA key again, but we keep as is for simplicity
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Fetch GKE SA key from Secret Manager
+        id: fetch-sa-key
+        run: |
+          gcloud secrets versions access latest \
+            --secret="${{ env.GKE_SA_KEY_SECRET_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" > /tmp/gke-sa-key.json
+          echo "SA_KEY_PATH=/tmp/gke-sa-key.json" >> $GITHUB_OUTPUT
+
+      - name: Authenticate again with SA key from Secret Manager
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v1
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_ZONE }}
-          credentials: ${{ secrets.GKE_SA_KEY }}
+          credentials: ${{ steps.fetch-sa-key.outputs.SA_KEY_PATH }}
 
       - name: Deploy to PROD
         run: |
