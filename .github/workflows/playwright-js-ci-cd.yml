@@ -1,4 +1,4 @@
-name: CI/CD to GKE with Playwright JS Tests
+name: CI/CD to GKE with Playwright JavaScript Tests
 
 permissions:
   contents: 'read'
@@ -75,7 +75,7 @@ jobs:
         id: npm-cache
         with:
           path: playwright-js-tests/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('playwright-js-tests/package-lock.json') }}
+          key: ${{ runner.os }}-node-${{ hashFiles('playwright-js-tests/package.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -83,12 +83,12 @@ jobs:
         if: steps.npm-cache.outputs.cache-hit != 'true'
         run: |
           cd playwright-js-tests
-          npm ci
+          npm install
 
-      - name: Install Playwright Chromium (cached)
-        uses: microsoft/playwright-github-action@v1
-        with:
-          browsers: 'chromium'
+      - name: Install Playwright Chromium (with system dependencies)
+        run: |
+          cd playwright-js-tests
+          npx playwright install --with-deps chromium
 
       - name: Run Cucumber JS tests (headless)
         run: |
