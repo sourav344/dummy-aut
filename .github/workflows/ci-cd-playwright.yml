@@ -12,7 +12,6 @@ env:
   IMAGE_NAME: ${{ secrets.ARTIFACT_REGISTRY }}/dummy-aut:${{ github.sha }}
   TEST_REPO: sourav344/playwright-tests
   TEST_BRANCH: main
-  # Secret Manager secret name where the service account JSON is stored
   GKE_SA_KEY_SECRET_NAME: github-actions-sa-key   # Change if needed
 
 jobs:
