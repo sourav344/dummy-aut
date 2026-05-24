@@ -96,6 +96,7 @@ jobs:
           npm test
         env:
           HEADLESS: true
+          CI: true
 
       - name: Upload test reports
         uses: actions/upload-artifact@v4
